@@ -29,13 +29,13 @@ Quando um registro de oportunidade era submetido, o fabricante enviava a confirm
 ![n8n](https://img.shields.io/badge/n8n-EA4B71?style=flat-square&logo=n8n&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat-square&logo=javascript&logoColor=black)
 ![Outlook](https://img.shields.io/badge/Microsoft_Outlook-0078D4?style=flat-square&logoColor=white)
-![HTML Email](https://img.shields.io/badge/HTML_Email-E34F26?style=flat-square&logo=html5&logoColor=white)
+![HTML](https://img.shields.io/badge/HTML_Email-E34F26?style=flat-square&logo=html5&logoColor=white)
 
 Nós utilizados: Microsoft Outlook Trigger · Set · Code · IF · Microsoft Outlook · No Operation
 
 ## Como usar
 
-1. No n8n, abra **… → Import from File** e selecione `workflow.json`.
+1. No n8n, abra ** → Import from File** e selecione `workflow.json`.
 2. Configure a credencial do Microsoft Outlook no gatilho e nos dois nós de envio.
 3. No gatilho, ajuste o filtro de remetente para o endereço que envia as confirmações.
 4. No nó **Processar RO Dell**, edite a lista `vendedores` com os nomes e e-mails da sua equipe.
