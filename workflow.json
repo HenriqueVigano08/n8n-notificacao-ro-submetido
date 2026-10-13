@@ -1,0 +1,267 @@
+{
+  "name": "Notificação de RO Submetido",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "authentication": "microsoftOAuth2Api",
+        "output": "raw",
+        "filters": {
+          "foldersToInclude": [],
+          "sender": "no_reply@dell.com"
+        },
+        "options": {}
+      },
+      "id": "717a119a-4257-4094-a6a6-46d9d9805099",
+      "name": "Outlook Trigger - No Reply",
+      "type": "n8n-nodes-base.microsoftOutlookTrigger",
+      "typeVersion": 1,
+      "position": [
+        -912,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "19071546-b242-4f14-bdaa-218827c97104",
+              "name": "caixaOrigem",
+              "value": "no-reply",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "d599f001-db03-4bcf-b31f-3495f2e937d9",
+      "name": "Origem - No Reply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -688,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const normalize = (value = '') => String(value)\n  .normalize('NFD')\n  .replace(/[\\u0300-\\u036f]/g, '')\n  .toLowerCase()\n  .replace(/[^a-z0-9]+/g, ' ')\n  .trim()\n  .replace(/\\s+/g, ' ');\n\nconst escapeHtml = (value = '') => String(value)\n  .replace(/&/g, '&amp;')\n  .replace(/</g, '&lt;')\n  .replace(/>/g, '&gt;')\n  .replace(/\"/g, '&quot;')\n  .replace(/'/g, '&#039;');\n\nconst decodeHtml = (value = '') => String(value)\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n  .replace(/<br\\s*\\/?>/gi, '\\n')\n  .replace(/<\\/p>/gi, '\\n')\n  .replace(/<\\/div>/gi, '\\n')\n  .replace(/<[^>]+>/g, ' ')\n  .replace(/&nbsp;|&#160;/gi, ' ')\n  .replace(/&amp;/gi, '&')\n  .replace(/&quot;/gi, '\"')\n  .replace(/&#39;|&apos;/gi, \"'\")\n  .replace(/&lt;/gi, '<')\n  .replace(/&gt;/gi, '>')\n  .replace(/\\r/g, '')\n  .replace(/[ \\t]+/g, ' ')\n  .replace(/\\n\\s*\\n+/g, '\\n')\n  .trim();\n\nconst vendedores = {\n  [normalize('Ana Souza')]: {\n    nome: 'Ana Souza',\n    email: 'ana.souza@empresa.example',\n  },\n  [normalize('Bruno Lima')]: {\n    nome: 'Bruno Lima',\n    email: 'bruno.lima@empresa.example',\n  },\n  [normalize('Carla Mendes')]: {\n    nome: 'Carla Mendes',\n    email: 'carla.mendes@empresa.example',\n  },\n};\n\nconst armazenamento = $getWorkflowStaticData('global');\narmazenamento.rosProcessados ??= {};\nconst execucaoManual = typeof $execution !== 'undefined'\n  && $execution.mode === 'manual';\n\nconst agora = Date.now();\nconst validadeHistorico = 365 * 24 * 60 * 60 * 1000;\nfor (const [chave, data] of Object.entries(armazenamento.rosProcessados)) {\n  if (agora - Number(data) > validadeHistorico) {\n    delete armazenamento.rosProcessados[chave];\n  }\n}\n\nconst resultado = [];\n\nfor (const item of $input.all()) {\n  const email = item.json;\n  const caixaOrigem = email.caixaOrigem;\n  const assuntoOriginal = String(email.subject || '');\n\n  const conteudoOriginal = email.body?.content\n    || email.body\n    || email.htmlBody\n    || email.bodyPreview\n    || '';\n  const texto = decodeHtml(conteudoOriginal);\n\n  const roMatch = texto.match(/N[uú]mero\\s+da\\s+Oportunidade\\s*:\\s*(\\d+)/i)\n    || assuntoOriginal.match(/\\bRO\\s*[:#-]?\\s*(\\d+)/i);\n  const numeroRO = roMatch?.[1] || '';\n\n  const nomeOportunidadeMatch = texto.match(\n    /Nome\\s+da\\s+Oportunidade\\s*:\\s*([\\s\\S]*?)(?=\\s*(?:Plano\\s+do\\s+programa\\s+de\\s+parceria|Nome\\s+da\\s+Conta\\s+do\\s+Parceiro|Termos\\s+e\\s+condi[cç][oõ]es|$))/i,\n  );\n\n  let nomeOportunidade = nomeOportunidadeMatch?.[1]?.trim() || '';\n  if (!nomeOportunidade) {\n    nomeOportunidade = assuntoOriginal\n      .replace(/^.*?revis[aã]o\\s*:\\s*/i, '')\n      .trim();\n  }\n\n  const refMatch = nomeOportunidade.match(/REF[:\\-]?\\s*([0-9]+)/i)\n    || assuntoOriginal.match(/REF[:\\-]?\\s*([0-9]+)/i);\n  const roReferencia = refMatch?.[1] || '';\n  const isRenovacao = Boolean(roReferencia);\n\n  const partes = nomeOportunidade.split('|').map((parte) => parte.trim());\n  const cliente = partes[0] || '';\n  const vendedorDell = partes[1] || '';\n  const produto = partes.slice(2).join(' | ') || '';\n  const vendedor = vendedores[normalize(vendedorDell)];\n\n  const chaveUnica = numeroRO\n    ? `ro:${numeroRO}`\n    : `mensagem:${email.internetMessageId || email.id || assuntoOriginal}`;\n\n  // Durante testes manuais, deixa o mesmo e-mail passar quantas vezes forem\n  // necessárias. Com o workflow publicado, bloqueia o segundo envio do RO.\n  if (!execucaoManual && armazenamento.rosProcessados[chaveUnica]) continue;\n  if (!execucaoManual) armazenamento.rosProcessados[chaveUnica] = agora;\n\n  const roExibicao = escapeHtml(numeroRO || 'Não identificado');\n  const clienteExibicao = escapeHtml(cliente || 'Não identificado');\n  const produtoExibicao = escapeHtml(produto || 'Não identificado');\n  const vendedorExibicao = escapeHtml(vendedor?.nome || vendedorDell || 'Não identificado');\n  const primeiroNome = escapeHtml((vendedor?.nome || vendedorDell || 'Vendedor').split(' ')[0]);\n\n  const htmlEmail = `\n<!doctype html>\n<html lang=\"pt-BR\">\n  <body style=\"margin:0;padding:0;background:#f3f5f7;font-family:Arial,Helvetica,sans-serif;color:#1f2933;\">\n    <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"background:#f3f5f7;padding:20px 12px;\">\n      <tr>\n        <td align=\"center\">\n          <table role=\"presentation\" width=\"620\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"width:100%;max-width:620px;background:#ffffff;border:1px solid #e2e6ea;border-radius:8px;overflow:hidden;\">\n            <tr>\n              <td align=\"center\" style=\"padding:12px 24px;background:#0a2222;border-bottom:4px solid #42e47d;\">\n                <img src=\"https://example.com/imagens/logo-empresa.png\" alt=\"Empresa Exemplo\" width=\"135\" style=\"display:block;width:135px;max-width:100%;height:auto;border:0;\">\n              </td>\n            </tr>\n            <tr>\n              <td style=\"padding:22px 26px 18px;\">\n                <p style=\"margin:0 0 13px;font-size:14px;line-height:1.5;color:#374151;\">Olá, ${primeiroNome}.</p>\n                <h1 style=\"margin:0 0 7px;font-size:20px;line-height:1.3;color:#0a2222;\">Registro de Oportunidade submetido</h1>\n                <p style=\"margin:0 0 17px;font-size:13px;line-height:1.5;color:#52606d;\">O registro foi enviado à Dell e está aguardando análise.</p>\n\n                <table role=\"presentation\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"margin:0 0 18px;\">\n                  <tr>\n                    <td style=\"padding:6px 11px;background:#eaf9f0;border:1px solid #bce8cc;border-radius:20px;font-size:12px;font-weight:bold;color:#167744;\">\n                      Submetido • Pendente de aprovação\n                    </td>\n                  </tr>\n                </table>\n\n                <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" style=\"border:1px solid #e2e8ed;border-radius:6px;border-collapse:separate;overflow:hidden;font-size:13px;line-height:1.45;\">\n                  <tr>\n                    <td width=\"92\" style=\"padding:9px 12px;background:#f6f8f8;border-bottom:1px solid #e2e8ed;color:#5f6b76;font-weight:bold;\">RO</td>\n                    <td style=\"padding:9px 12px;border-bottom:1px solid #e2e8ed;color:#0a2222;font-weight:bold;\">${roExibicao}</td>\n                  </tr>\n                  <tr>\n                    <td width=\"92\" style=\"padding:9px 12px;background:#f6f8f8;border-bottom:1px solid #e2e8ed;color:#5f6b76;font-weight:bold;\">Cliente</td>\n                    <td style=\"padding:9px 12px;border-bottom:1px solid #e2e8ed;\">${clienteExibicao}</td>\n                  </tr>\n                  <tr>\n                    <td width=\"92\" style=\"padding:9px 12px;background:#f6f8f8;color:#5f6b76;font-weight:bold;\">Produto</td>\n                    <td style=\"padding:9px 12px;\">${produtoExibicao}</td>\n                  </tr>\n                </table>\n\n                <p style=\"margin:17px 0 0;padding-top:13px;border-top:1px solid #edf0f2;font-size:11px;line-height:1.45;color:#7b8794;\">Mensagem automática do fluxo de Registro de Oportunidades da Empresa Exemplo.</p>\n              </td>\n            </tr>\n          </table>\n        </td>\n      </tr>\n    </table>\n  </body>\n</html>`;\n\n  const htmlAlerta = `\n<!doctype html>\n<html lang=\"pt-BR\">\n  <body style=\"font-family:Arial,Helvetica,sans-serif;color:#252525;\">\n    <img src=\"https://example.com/imagens/logo-empresa.png\" alt=\"Empresa Exemplo\" width=\"180\" style=\"display:block;width:180px;height:auto;margin-bottom:22px;\">\n    <h2 style=\"color:#b42318;\">Vendedor não identificado</h2>\n    <p>O fluxo recebeu um e-mail da Dell, mas não encontrou uma correspondência segura na lista de vendedores. Nenhum e-mail foi enviado ao vendedor.</p>\n    <p><strong>RO:</strong> ${roExibicao}<br>\n    <strong>Nome identificado:</strong> ${vendedorExibicao}<br>\n    <strong>Cliente:</strong> ${clienteExibicao}<br>\n    <strong>Produto:</strong> ${produtoExibicao}<br>\n    <strong>Caixa de origem:</strong> ${escapeHtml(caixaOrigem)}</p>\n  </body>\n</html>`;\n\n  resultado.push({\n    json: {\n      caixaOrigem,\n      numeroRO,\n      roReferencia,\n      isRenovacao,\n      cliente,\n      produto,\n      vendedorDell,\n      vendedorEncontrado: Boolean(vendedor),\n      nomeVendedor: vendedor?.nome || vendedorDell || '',\n      emailVendedor: vendedor?.email || '',\n      assuntoEmail: `RO ${numeroRO || 'não identificado'} submetido — ${cliente || 'cliente não identificado'}`,\n      htmlEmail,\n      assuntoAlerta: `ATENÇÃO — vendedor não identificado no RO ${numeroRO || 'sem número'}`,\n      htmlAlerta,\n      mensagemDellId: email.id || '',\n      internetMessageId: email.internetMessageId || '',\n      recebidoEm: email.receivedDateTime || '',\n    },\n  });\n}\n\nreturn resultado;\n"
+      },
+      "id": "d38f0d75-3d73-4ca5-96da-a84b014688a4",
+      "name": "Processar RO Dell",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3117d32a-8fc7-40c1-a69a-ee51d0c02110",
+              "leftValue": "={{ $json.vendedorEncontrado }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d8f1980d-dcf8-45e3-b535-39fd2c3cd3c4",
+      "name": "Vendedor encontrado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -256,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "microsoftOAuth2Api",
+        "toRecipients": "={{ $json.emailVendedor }}",
+        "subject": "={{ $json.assuntoEmail }}",
+        "bodyContent": "={{ $json.htmlEmail }}",
+        "additionalFields": {
+          "ccRecipients": "automacoes@empresa.example, registros@empresa.example",
+          "bodyContentType": "html"
+        }
+      },
+      "id": "c3c89e3b-cedd-4476-8cfa-ad2d56b30fd5",
+      "name": "Enviar ao vendedor - No Reply",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        320,
+        464
+      ],
+      "webhookId": "134b9ae2-604e-4af7-83ff-be2533d23a24"
+    },
+    {
+      "parameters": {
+        "authentication": "microsoftOAuth2Api",
+        "toRecipients": "no-reply@empresa.example",
+        "subject": "={{ $json.assuntoAlerta }}",
+        "bodyContent": "={{ $json.htmlAlerta }}",
+        "additionalFields": {
+          "bodyContentType": "html"
+        }
+      },
+      "id": "ccac0acb-7aaa-40df-94d6-44ed0432bdd4",
+      "name": "Alertar responsáveis - No Reply",
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        48,
+        576
+      ],
+      "webhookId": "890b7a39-92b2-4d4d-b02c-d18a8f8f920c"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0108b254-e653-420d-bd92-4e1ca77052c4",
+              "leftValue": "={{ $json.isRenovacao }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4387ad5b-e246-4e7f-9848-7781b0c611ba",
+      "name": "É renovação (REF)?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        32,
+        368
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "2cd4eb76-ebdd-43a6-aadc-3cc573d28c7a",
+      "name": "Não Notifica - Renovação",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        320,
+        240
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Outlook Trigger - No Reply": {
+      "main": [
+        [
+          {
+            "node": "Origem - No Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Origem - No Reply": {
+      "main": [
+        [
+          {
+            "node": "Processar RO Dell",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar RO Dell": {
+      "main": [
+        [
+          {
+            "node": "Vendedor encontrado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vendedor encontrado?": {
+      "main": [
+        [
+          {
+            "node": "É renovação (REF)?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alertar responsáveis - No Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É renovação (REF)?": {
+      "main": [
+        [
+          {
+            "node": "Não Notifica - Renovação",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar ao vendedor - No Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
